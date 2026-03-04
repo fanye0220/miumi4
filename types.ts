@@ -1,0 +1,64 @@
+
+export interface QrItem {
+  id: number;
+  label: string;
+  message: string;
+  preventAutoExecute?: boolean;
+}
+
+export interface CharacterBookEntry {
+  keys: string[];
+  content: string;
+  enabled?: boolean;
+  insertion_order?: number;
+  case_sensitive?: boolean;
+  name?: string;
+  priority?: number;
+  id?: number;
+  comment?: string;
+}
+
+export interface CharacterBook {
+  name?: string;
+  description?: string;
+  entries: CharacterBookEntry[];
+}
+
+export interface Character {
+  id: string;
+  name: string;
+  description: string;
+  personality: string;
+  firstMessage: string;
+  alternate_greetings?: string[]; // Added: Alternate greetings support
+  avatarUrl: string;
+  scenario?: string;
+  character_book?: CharacterBook;
+  tags?: string[]; // Added: Tags support
+  qrList?: QrItem[];
+  originalFilename?: string;
+  sourceUrl?: string;
+  cardUrl?: string;
+  creator_notes?: string;
+  mes_example?: string;       // 对话示例
+  system_prompt?: string;     // 系统提示词
+  post_history_instructions?: string; // 历史记录后指令
+  importDate?: number;
+  extra_qr_data?: any;
+  qrFileName?: string;
+  isFavorite?: boolean;
+  folder?: string;
+  importFormat?: 'png' | 'json' | 'unknown';
+  updatedAt?: number;
+  note?: string;
+}
+
+export interface Message {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+  timestamp: number;
+}
+
+export type ViewMode = 'list' | 'edit';
+export type Theme = 'dark' | 'light';
