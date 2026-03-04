@@ -463,71 +463,68 @@ const CharacterList: React.FC<CharacterListProps> = ({
 
     setError(null);
     setWarning(null);
-    
+
     const fileArray = Array.from(files) as File[];
     const validFiles = fileArray.filter(f => {
-      const name = f.name.toLowerCase();
-      return name.endsWith('.png') || name.endsWith('.json');
+      const n = f.name.toLowerCase();
+      return n.endsWith('.png') || n.endsWith('.json');
     });
     if (validFiles.length === 0) return;
 
+    // 显示全屏加载遮罩，阻止用户交互（和HTML版一样）
     setImportingCount(validFiles.length);
 
-    let successCount = 0;
+    // ─── 核心策略：导入期间完全不碰 React state ───
+    // 把所有解析结果先收集进普通数组，全部完成后一次性 setState
+    // 这样无论导入多少张，React 只触发 1 次重渲染，彻底避免白屏
+    const collected: Character[] = [];
     let failCount = 0;
     const failedFiles: string[] = [];
-
-    // 流式批处理：每 BATCH_SIZE 张解析完就调用一次 onImportBatch
-    // 这样 React 只触发一次 setState，不会因为 N 次连续 setState 积压渲染
-    const BATCH_SIZE = 15;
-    let batch: Character[] = [];
-
-    const flushBatch = () => {
-      if (batch.length === 0) return;
-      const toFlush = batch.splice(0); // 清空 batch
-      if (onImportBatch) {
-        onImportBatch(toFlush);
-      } else {
-        toFlush.forEach(c => onImport(c));
-      }
-    };
 
     for (let i = 0; i < validFiles.length; i++) {
       const file = validFiles[i];
       const isPng = file.name.toLowerCase().endsWith('.png');
       try {
         const char = isPng ? await parseCharacterCard(file) : await parseCharacterJson(file);
-
-        if (validFiles.length === 1) {
-          const isDuplicateName = characters.some(c => c.name === char.name);
-          if (isDuplicateName) setWarning(`注意：检测到可能重复的角色 "${char.name}"`);
-        }
-
-        batch.push(char);
-        successCount++;
-
-        // 每攒够一批就提交，然后让出主线程
-        if (batch.length >= BATCH_SIZE) {
-          flushBatch();
-          setImportingCount(validFiles.length - i - 1); // 更新进度
-          // 让出主线程：让浏览器渲染这一批，再继续解析下一批
-          await new Promise(r => setTimeout(r, 16));
-        }
+        collected.push(char);
       } catch (err: any) {
         console.error(`Failed to import ${file.name}:`, err);
         failCount++;
         failedFiles.push(`${file.name}: ${err.message}`);
       }
+
+      // 每处理50张更新一次进度数字（不触发列表重渲染，只更新计数器）
+      if (i % 50 === 0) {
+        setImportingCount(validFiles.length - i);
+        // 让出主线程，保持页面响应
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
 
-    // 提交最后一批剩余
-    flushBatch();
+    // ─── 全部解析完成，一次性提交 ───
     setImportingCount(0);
 
+    if (collected.length > 0) {
+      if (validFiles.length === 1 && collected.length === 1) {
+        const isDuplicateName = characters.some(c => c.name === collected[0].name);
+        if (isDuplicateName) setWarning(`注意：检测到可能重复的角色 "${collected[0].name}"`);
+      }
+      // 一次 setState，触发一次重渲染
+      if (onImportBatch) {
+        onImportBatch(collected);
+      } else {
+        collected.forEach(c => onImport(c));
+      }
+    }
+
     if (failCount > 0) {
-      setImportResults({ success: successCount, failed: failCount, failedFiles });
+      setImportResults({ success: collected.length, failed: failCount, failedFiles });
       setImportErrorModalOpen(true);
     }
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (folderInputRef.current) folderInputRef.current.value = '';
+  };
 
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (folderInputRef.current) folderInputRef.current.value = '';
@@ -1118,11 +1115,28 @@ const CharacterList: React.FC<CharacterListProps> = ({
              {importingCount > 0 && (
                 <div className="flex items-center gap-2 text-xs text-blue-400 animate-pulse">
                     <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span>解析中...</span>
                 </div>
             )}
         </div>
       </div>
-      
+
+      {/* 全屏导入遮罩 */}
+      {importingCount > 0 && (
+          <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center" style={{background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)'}}>
+              <div className={`flex flex-col items-center gap-6 p-10 rounded-3xl shadow-2xl border ${theme === 'light' ? 'bg-white border-slate-200' : 'bg-slate-800 border-white/10'}`}>
+                  <div className="w-14 h-14 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <div className={`text-center ${theme === 'light' ? 'text-slate-800' : 'text-white'}`}>
+                      <div className="text-xl font-black mb-1">正在导入...</div>
+                      <div className={`text-sm font-mono ${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>
+                          剩余 <span className="text-blue-500 font-bold text-base">{importingCount}</span> 个文件
+                      </div>
+                      <div className={`text-xs mt-2 ${theme === 'light' ? 'text-slate-400' : 'text-gray-500'}`}>解析完成后一次性显示，请稍候</div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Bulk Action Bar */}
       {isSelectionMode && (
           <div className={`mb-4 mx-2 p-3 rounded-2xl flex items-center justify-between backdrop-blur-xl shadow-lg border animate-slide-down z-20 ${
